@@ -243,7 +243,7 @@ def save_custom(svg_path: str, out_dir: Path, name: str, w: int, h: int, fmt: st
 class SvgConverterApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SVG Converter & Icon Generator (CairoSVG backend)")
+        self.setWindowTitle("SVG/PNG Converter & Icon Generator")
         self.setWindowIcon(QIcon.fromTheme("image-x-svg"))
 
         self.svg_path: Optional[str] = None
@@ -258,7 +258,7 @@ class SvgConverterApp(QWidget):
 
         # Controls
         self.pathLine = QLineEdit(); self.pathLine.setReadOnly(True)
-        self.loadBtn = QPushButton("Load SVG…"); self.loadBtn.clicked.connect(self.on_load)
+        self.loadBtn = QPushButton("Load SVG/PNG"); self.loadBtn.clicked.connect(self.on_load)
 
         # Create these BEFORE wiring dynamic handler that uses them
         self.widthSpin = QSpinBox();  self.widthSpin.setRange(16, 16384); self.widthSpin.setValue(1024)
@@ -300,7 +300,7 @@ class SvgConverterApp(QWidget):
         size_row = QHBoxLayout(); size_row.addWidget(self.widthSpin); size_row.addWidget(QLabel("×")); size_row.addWidget(self.heightSpin)
 
         form = QFormLayout()
-        form.addRow("SVG:", self.pathLine)
+        form.addRow("SVG/PNG:", self.pathLine)
         form.addRow(self.loadBtn)
         form.addRow("Profile:", self.profileCombo)
         form.addRow("Format:", self.formatCombo)
@@ -357,7 +357,7 @@ class SvgConverterApp(QWidget):
         self.update_preview()
 
     def on_load(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Choose SVG", "", "SVG Files (*.svg)")
+        path, _ = QFileDialog.getOpenFileName(self, "Choose Source", "", "SVG or PNG Files (*.svg *.png)")
         if path:
             self.svg_path = path
             self.pathLine.setText(path)
@@ -378,7 +378,7 @@ class SvgConverterApp(QWidget):
     # ---- Preview ----
     def update_preview(self):
         if not self.svg_path:
-            self.previewImage.setText("No SVG loaded")
+            self.previewImage.setText("No source loaded")
             return
 
         profile = self.profileCombo.currentText()
@@ -390,14 +390,19 @@ class SvgConverterApp(QWidget):
             w, h = self.widthSpin.value(), self.heightSpin.value()
 
         try:
-            pil = render_svg_to_pillow(
-                self.svg_path,
-                width=w, height=h,
-                zoom=self.zoomSlider.value()/100.0,
-                padding=self.paddingSpin.value(),
-                transparent=self.transparentBg.isChecked(),
-                bg_color=self.bgColor
-            )
+            if self.svg_path.lower().endswith('.png'):
+                pil = Image.open(self.svg_path)
+                pil = pil.convert("RGBA")
+                pil = pil.resize((w, h), LANCZOS_RESAMPLE)
+            else:
+                pil = render_svg_to_pillow(
+                    self.svg_path,
+                    width=w, height=h,
+                    zoom=self.zoomSlider.value()/100.0,
+                    padding=self.paddingSpin.value(),
+                    transparent=self.transparentBg.isChecked(),
+                    bg_color=self.bgColor
+                )
             pix = pillow_to_qpixmap(pil)
             self.previewImage.setPixmap(
                 pix.scaled(self.previewImage.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
@@ -408,7 +413,7 @@ class SvgConverterApp(QWidget):
     # ---- Export ----
     def on_create(self):
         if not self.svg_path:
-            QMessageBox.warning(self, "No SVG", "Please load an SVG file first.")
+            QMessageBox.warning(self, "No source", "Please load an SVG or PNG file first.")
             return
         out = self.ask_output_dir()
         if not out:
@@ -426,36 +431,132 @@ class SvgConverterApp(QWidget):
         name = Path(self.svg_path).stem
 
         try:
-            if profile == "Custom export":
-                save_custom(self.svg_path, out_dir / "custom", name, w, h, fmt, transparent, zoom, padding, bg)
+            def png_render_to_pillow(path, width, height, **kwargs):
+                img = Image.open(path)
+                img = img.convert("RGBA")
+                img = img.resize((width, height), LANCZOS_RESAMPLE)
+                return img
 
-            elif profile == "Create Windows icon (.ico)":
-                save_windows_ico(self.svg_path, out_dir / "windows", WINDOWS_ICO_SIZES, transparent, zoom, padding, bg)
+            def save_custom_png(src_path, out_dir, name, w, h, fmt, transparent, zoom, padding, bg):
+                out_dir.mkdir(parents=True, exist_ok=True)
+                img = png_render_to_pillow(src_path, w, h)
+                out = unique_path(out_dir / f"{name}_{w}x{h}.{fmt}")
+                if fmt == "pdf":
+                    img = pillow_flatten(img, qcolor_to_rgba_tuple(bg))
+                    img.convert("RGB").save(out, "PDF")
+                else:
+                    if fmt in ("jpg", "jpeg", "bmp") or not transparent:
+                        img = pillow_flatten(img, qcolor_to_rgba_tuple(bg))
+                    img.save(out)
 
-            elif profile == "Create macOS icon (.icns)":
-                save_macos_icns(self.svg_path, out_dir / "macos", MAC_ICON_SIZES, transparent, zoom, padding, bg)
+            def save_windows_ico_png(src_path, out_dir, sizes, transparent, zoom, padding, bg):
+                out_dir.mkdir(parents=True, exist_ok=True)
+                base = max(sizes)
+                src = png_render_to_pillow(src_path, base, base)
+                if not transparent:
+                    if src.mode != "RGB":
+                        src = src.convert("RGB")
+                ico_path = unique_path(out_dir / "icon.ico")
+                src.save(ico_path, format="ICO", sizes=[(s, s) for s in sizes])
 
-            elif profile == "Create Linux icon PNGs":
-                # honor PNG/JPG/BMP from dropdown
-                save_png_set(self.svg_path, out_dir, "linux", name, LINUX_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+            def save_macos_icns_png(src_path, out_dir, sizes_for_check, transparent, zoom, padding, bg):
+                out_dir.mkdir(parents=True, exist_ok=True)
+                base = max(sizes_for_check)
+                src = png_render_to_pillow(src_path, base, base)
+                if not transparent:
+                    src = pillow_flatten(src, qcolor_to_rgba_tuple(bg))
+                icns_path = unique_path(out_dir / "icon.icns")
+                try:
+                    src.save(icns_path, format="ICNS")
+                except Exception as e:
+                    if platform.system() == "Darwin":
+                        iconset = out_dir / "icon.iconset"
+                        iconset.mkdir(parents=True, exist_ok=True)
+                        for s in sizes_for_check:
+                            img = png_render_to_pillow(src_path, s, s)
+                            img.save(iconset / f"icon_{s}x{s}.png")
+                        proc = subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns_path)],
+                                              capture_output=True, text=True)
+                        if proc.returncode != 0:
+                            raise RuntimeError(f"ICNS export failed (Pillow + iconutil): {proc.stderr.strip()}") from e
+                    else:
+                        raise
 
-            elif profile == "Create Android app icons":
-                save_png_set(self.svg_path, out_dir, "android", name, ANDROID_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+            def save_png_set_png(src_path, out_dir, label, name, sizes, transparent, zoom, padding, bg, fmt="png"):
+                fmt = fmt.lower()
+                base = out_dir / label / name
+                base.mkdir(parents=True, exist_ok=True)
+                for s in sizes:
+                    img = png_render_to_pillow(src_path, s, s)
+                    if fmt in ("jpg", "jpeg", "bmp") or not transparent:
+                        img = pillow_flatten(img, qcolor_to_rgba_tuple(bg))
+                    img.save(base / f"{name}_{s}x{s}.{fmt}")
 
-            elif profile == "Create iOS app icons":
-                save_png_set(self.svg_path, out_dir, "ios", name, IOS_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+            def save_wallpapers_png(src_path, out_dir, label, name, sizes, transparent, zoom, padding, bg, fmt="png"):
+                fmt = fmt.lower()
+                base = out_dir / "wallpapers" / label / name
+                base.mkdir(parents=True, exist_ok=True)
+                for sz in sizes:
+                    img = png_render_to_pillow(src_path, sz.width(), sz.height())
+                    if fmt in ("jpg", "jpeg", "bmp") or not transparent:
+                        img = pillow_flatten(img, qcolor_to_rgba_tuple(bg))
+                    img.save(base / f"{name}_{sz.width()}x{sz.height()}.{fmt}")
 
-            elif profile == "Export standard sizes: Computer":
-                save_wallpapers(self.svg_path, out_dir, "desktop", name, DESKTOP_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+            if self.svg_path.lower().endswith('.png'):
+                if profile == "Custom export":
+                    save_custom_png(self.svg_path, out_dir / "custom", name, w, h, fmt, transparent, zoom, padding, bg)
+                elif profile == "Create Windows icon (.ico)":
+                    save_windows_ico_png(self.svg_path, out_dir / "windows", WINDOWS_ICO_SIZES, transparent, zoom, padding, bg)
+                elif profile == "Create macOS icon (.icns)":
+                    save_macos_icns_png(self.svg_path, out_dir / "macos", MAC_ICON_SIZES, transparent, zoom, padding, bg)
+                elif profile == "Create Linux icon PNGs":
+                    save_png_set_png(self.svg_path, out_dir, "linux", name, LINUX_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+                elif profile == "Create Android app icons":
+                    save_png_set_png(self.svg_path, out_dir, "android", name, ANDROID_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+                elif profile == "Create iOS app icons":
+                    save_png_set_png(self.svg_path, out_dir, "ios", name, IOS_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+                elif profile == "Export standard sizes: Computer":
+                    save_wallpapers_png(self.svg_path, out_dir, "desktop", name, DESKTOP_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+                elif profile == "Export standard sizes: Phone":
+                    save_wallpapers_png(self.svg_path, out_dir, "phone", name, PHONE_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+                elif profile == "Export tablet sizes: Portrait":
+                    save_wallpapers_png(self.svg_path, out_dir, "tablet_portrait", name, TABLET_PORTRAIT_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+                elif profile == "Export tablet sizes: Landscape":
+                    save_wallpapers_png(self.svg_path, out_dir, "tablet_landscape", name, TABLET_LANDSCAPE_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+                else:
+                    QMessageBox.warning(self, "Unsupported", f"Profile '{profile}' is not supported for PNG sources.")
+                    return
+            else:
+                # ...existing code...
+                if profile == "Custom export":
+                    save_custom(self.svg_path, out_dir / "custom", name, w, h, fmt, transparent, zoom, padding, bg)
 
-            elif profile == "Export standard sizes: Phone":
-                save_wallpapers(self.svg_path, out_dir, "phone", name, PHONE_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+                elif profile == "Create Windows icon (.ico)":
+                    save_windows_ico(self.svg_path, out_dir / "windows", WINDOWS_ICO_SIZES, transparent, zoom, padding, bg)
 
-            elif profile == "Export tablet sizes: Portrait":
-                save_wallpapers(self.svg_path, out_dir, "tablet_portrait", name, TABLET_PORTRAIT_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+                elif profile == "Create macOS icon (.icns)":
+                    save_macos_icns(self.svg_path, out_dir / "macos", MAC_ICON_SIZES, transparent, zoom, padding, bg)
 
-            elif profile == "Export tablet sizes: Landscape":
-                save_wallpapers(self.svg_path, out_dir, "tablet_landscape", name, TABLET_LANDSCAPE_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+                elif profile == "Create Linux icon PNGs":
+                    save_png_set(self.svg_path, out_dir, "linux", name, LINUX_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+
+                elif profile == "Create Android app icons":
+                    save_png_set(self.svg_path, out_dir, "android", name, ANDROID_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+
+                elif profile == "Create iOS app icons":
+                    save_png_set(self.svg_path, out_dir, "ios", name, IOS_ICON_SIZES, transparent, zoom, padding, bg, fmt)
+
+                elif profile == "Export standard sizes: Computer":
+                    save_wallpapers(self.svg_path, out_dir, "desktop", name, DESKTOP_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+
+                elif profile == "Export standard sizes: Phone":
+                    save_wallpapers(self.svg_path, out_dir, "phone", name, PHONE_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+
+                elif profile == "Export tablet sizes: Portrait":
+                    save_wallpapers(self.svg_path, out_dir, "tablet_portrait", name, TABLET_PORTRAIT_WALLPAPERS, transparent, zoom, padding, bg, fmt)
+
+                elif profile == "Export tablet sizes: Landscape":
+                    save_wallpapers(self.svg_path, out_dir, "tablet_landscape", name, TABLET_LANDSCAPE_WALLPAPERS, transparent, zoom, padding, bg, fmt)
 
             QMessageBox.information(self, "Done", f"Export complete to:\n{out_dir}")
 
