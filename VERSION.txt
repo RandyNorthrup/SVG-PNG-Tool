@@ -16,9 +16,9 @@ VSVersionInfo(
 				StringTable(
 					'040904B0',
 					[
-						StringStruct('FileDescription', 'SVG Converter & Icon Generator – Cross-platform desktop tool for converting SVG files to raster formats, app icons, and wallpapers.'),
+						StringStruct('FileDescription', 'SVG PNG Converter & Icon Generator – Cross-platform desktop tool for converting SVG files to raster formats, app icons, and wallpapers.'),
 						StringStruct('FileVersion', '1.0.0.0'),
-						StringStruct('ProductName', 'SVG Converter & Icon Generator'),
+						StringStruct('ProductName', 'SVG PNG Converter & Icon Generator'),
 						StringStruct('ProductVersion', '1.0.0.0'),
 					]
 				)
