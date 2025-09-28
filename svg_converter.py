@@ -9,8 +9,26 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QComboBox, QSpinBox, QFormLayout, QLineEdit, QMessageBox,
     QCheckBox, QColorDialog, QSlider, QLabel
 )
+
 from PIL import Image
-import cairosvg
+try:
+    import cairosvg
+except OSError as e:
+    import platform
+    sys_platform = platform.system()
+    msg = [
+        "\nERROR: The Cairo graphics library required by CairoSVG is not installed.",
+        str(e),
+        "\nTo fix this, follow the instructions for your platform:\n"
+    ]
+    if sys_platform == "Darwin":
+        msg.append("macOS: Run 'brew install cairo' in Terminal. If you don't have Homebrew, install it from https://brew.sh first.")
+    elif sys_platform == "Windows":
+        msg.append("Windows: Install GTK3 and Cairo using MSYS2 or download prebuilt binaries. See https://pycairo.readthedocs.io/en/latest/getting_started.html#windows.")
+    else:
+        msg.append("Linux: Run 'sudo apt-get install libcairo2' or use your distro's package manager.")
+    print("\n".join(msg), file=sys.stderr)
+    sys.exit(1)
 
 
 # ---------- Pillow LANCZOS compatibility ----------
@@ -63,7 +81,7 @@ def pillow_to_qpixmap(img: Image.Image) -> QPixmap:
         img = img.convert("RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    qimg = QImage.fromData(buf.getvalue(), "PNG")
+    qimg = QImage.fromData(buf.getvalue())  # Removed format string for Pylance type compatibility
     return QPixmap.fromImage(qimg)
 
 
@@ -104,7 +122,7 @@ def render_svg_to_pillow(svg_path: str,
         output_height=render_h,
         background_color=None if transparent else f"rgb({bg.red()},{bg.green()},{bg.blue()})"
     )
-    content = Image.open(io.BytesIO(png_bytes))
+    content = Image.open(io.BytesIO(png_bytes if png_bytes is not None else b""))
     content.load()
     content = content.convert("RGBA" if transparent else "RGB")
 
