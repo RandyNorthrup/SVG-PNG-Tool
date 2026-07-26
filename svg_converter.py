@@ -196,6 +196,82 @@ def render_svg_to_pillow(
     return canvas
 
 
+def render_png_to_pillow(
+    png_path: str,
+    width: int,
+    height: int,
+    zoom: float = 1.0,
+    padding: int = 0,
+    transparent: bool = True,
+    bg_color: QColor | None = None,
+) -> Image.Image:
+    """Render a raster input to (width, height), honouring zoom and padding.
+
+    The raster counterpart to render_svg_to_pillow, with identical geometry and
+    background semantics so a PNG input behaves the same as an SVG input.
+
+    Previously the PNG path resized straight to the target size, which silently
+    discarded the zoom and padding controls and, when transparency was off,
+    flattened onto black rather than the chosen background colour.
+
+    Zoom semantics match the SVG renderer:
+      - 1.0 = full fit inside (width, height) minus padding
+      - 0.1..1.0 = shrink proportionally
+      - never exceeds full fit (no overscale)
+    """
+    bg = bg_color if bg_color is not None else QColor("white")
+    zoom = max(0.1, min(1.0, zoom))
+
+    canvas_w = max(1, width)
+    canvas_h = max(1, height)
+    work_w = max(1, canvas_w - 2 * padding)
+    work_h = max(1, canvas_h - 2 * padding)
+
+    content = Image.open(png_path)
+    content.load()
+    content = content.convert("RGBA")
+
+    # Fit inside the work area preserving aspect ratio, then apply zoom.
+    cw, ch = content.size
+    fit = min(work_w / cw, work_h / ch)
+    target_w = max(1, int(cw * fit * zoom))
+    target_h = max(1, int(ch * fit * zoom))
+    content = content.resize((target_w, target_h), LANCZOS_RESAMPLE)
+
+    cx = (canvas_w - content.size[0]) // 2
+    cy = (canvas_h - content.size[1]) // 2
+
+    if transparent:
+        canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+        canvas.alpha_composite(content, (cx, cy))
+        return canvas
+
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (bg.red(), bg.green(), bg.blue()))
+    canvas.paste(content.convert("RGB"), (cx, cy), mask=content.split()[3])
+    return canvas
+
+
+def macos_iconset_entries(sizes: list[int]) -> list[tuple[str, int]]:
+    """Return the (filename, pixel_size) pairs iconutil accepts.
+
+    iconutil recognises a fixed set of names — a base and an @2x variant for
+    each of 16/32/128/256/512 points — and ignores or rejects anything else.
+    The previous code emitted icon_<n>x<n>.png for every configured size,
+    which produced invalid members such as icon_64x64.png and
+    icon_1024x1024.png, so the iconutil fallback could fail in exactly the
+    case it exists to cover.
+
+    `sizes` is accepted so callers can keep passing their configured list; the
+    returned set is the valid intersection, independent of that input.
+    """
+    points = [16, 32, 128, 256, 512]
+    entries: list[tuple[str, int]] = []
+    for pt in points:
+        entries.append((f"icon_{pt}x{pt}.png", pt))
+        entries.append((f"icon_{pt}x{pt}@2x.png", pt * 2))
+    return entries
+
+
 # ---------- EXPORTS ----------
 def save_windows_ico(
     svg_path: str,
@@ -262,18 +338,20 @@ def save_macos_icns(
         if platform.system() == "Darwin":
             iconset = out_dir / "icon.iconset"
             iconset.mkdir(parents=True, exist_ok=True)
-            # build from the expected ICNS sizes
-            for s in sizes_for_check:
+            # iconutil only accepts a fixed set of base/@2x filenames, so the
+            # entries come from macos_iconset_entries rather than from the
+            # configured size list.
+            for filename, px in macos_iconset_entries(sizes_for_check):
                 img = render_svg_to_pillow(
                     svg_path,
-                    s,
-                    s,
+                    px,
+                    px,
                     zoom=zoom,
                     padding=padding,
                     transparent=transparent,
                     bg_color=bg,
                 )
-                img.save(iconset / f"icon_{s}x{s}.png")
+                img.save(iconset / filename)
             proc = subprocess.run(
                 ["iconutil", "-c", "icns", str(iconset), "-o", str(icns_path)],
                 capture_output=True,
@@ -616,11 +694,6 @@ class SvgConverterApp(QWidget):
 
         try:
 
-            def png_render_to_pillow(path: str, width: int, height: int) -> Image.Image:
-                img = Image.open(path)
-                img = img.convert("RGBA")
-                return img.resize((width, height), LANCZOS_RESAMPLE)
-
             def save_custom_png(
                 src_path: str,
                 out_dir: Path,
@@ -634,7 +707,9 @@ class SvgConverterApp(QWidget):
                 bg: QColor,
             ) -> None:
                 out_dir.mkdir(parents=True, exist_ok=True)
-                img = png_render_to_pillow(src_path, w, h)
+                img = render_png_to_pillow(
+                    src_path, w, h, zoom=zoom, padding=padding, transparent=True
+                )
                 out = unique_path(out_dir / f"{name}_{w}x{h}.{fmt}")
                 if fmt == "pdf":
                     img = pillow_flatten(img, qcolor_to_rgba_tuple(bg))
@@ -655,9 +730,15 @@ class SvgConverterApp(QWidget):
             ) -> None:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 base = max(sizes)
-                src = png_render_to_pillow(src_path, base, base)
-                if not transparent and src.mode != "RGB":
-                    src = src.convert("RGB")
+                src = render_png_to_pillow(
+                    src_path,
+                    base,
+                    base,
+                    zoom=zoom,
+                    padding=padding,
+                    transparent=transparent,
+                    bg_color=bg,
+                )
                 ico_path = unique_path(out_dir / "icon.ico")
                 src.save(ico_path, format="ICO", sizes=[(s, s) for s in sizes])
 
@@ -672,7 +753,15 @@ class SvgConverterApp(QWidget):
             ) -> None:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 base = max(sizes_for_check)
-                src = png_render_to_pillow(src_path, base, base)
+                src = render_png_to_pillow(
+                    src_path,
+                    base,
+                    base,
+                    zoom=zoom,
+                    padding=padding,
+                    transparent=transparent,
+                    bg_color=bg,
+                )
                 if not transparent:
                     src = pillow_flatten(src, qcolor_to_rgba_tuple(bg))
                 icns_path = unique_path(out_dir / "icon.icns")
@@ -682,9 +771,18 @@ class SvgConverterApp(QWidget):
                     if platform.system() == "Darwin":
                         iconset = out_dir / "icon.iconset"
                         iconset.mkdir(parents=True, exist_ok=True)
-                        for s in sizes_for_check:
-                            img = png_render_to_pillow(src_path, s, s)
-                            img.save(iconset / f"icon_{s}x{s}.png")
+                        # Same fixed base/@2x naming iconutil requires.
+                        for filename, px in macos_iconset_entries(sizes_for_check):
+                            img = render_png_to_pillow(
+                                src_path,
+                                px,
+                                px,
+                                zoom=zoom,
+                                padding=padding,
+                                transparent=transparent,
+                                bg_color=bg,
+                            )
+                            img.save(iconset / filename)
                         proc = subprocess.run(
                             [
                                 "iconutil",
@@ -724,7 +822,15 @@ class SvgConverterApp(QWidget):
                 base = out_dir / label / name
                 base.mkdir(parents=True, exist_ok=True)
                 for s in sizes:
-                    img = png_render_to_pillow(src_path, s, s)
+                    img = render_png_to_pillow(
+                        src_path,
+                        s,
+                        s,
+                        zoom=zoom,
+                        padding=padding,
+                        transparent=transparent,
+                        bg_color=bg,
+                    )
                     if fmt in ("jpg", "jpeg", "bmp") or not transparent:
                         img = pillow_flatten(img, qcolor_to_rgba_tuple(bg))
                     img.save(base / f"{name}_{s}x{s}.{fmt}")
@@ -745,7 +851,15 @@ class SvgConverterApp(QWidget):
                 base = out_dir / "wallpapers" / label / name
                 base.mkdir(parents=True, exist_ok=True)
                 for sz in sizes:
-                    img = png_render_to_pillow(src_path, sz.width(), sz.height())
+                    img = render_png_to_pillow(
+                        src_path,
+                        sz.width(),
+                        sz.height(),
+                        zoom=zoom,
+                        padding=padding,
+                        transparent=transparent,
+                        bg_color=bg,
+                    )
                     if fmt in ("jpg", "jpeg", "bmp") or not transparent:
                         img = pillow_flatten(img, qcolor_to_rgba_tuple(bg))
                     img.save(base / f"{name}_{sz.width()}x{sz.height()}.{fmt}")

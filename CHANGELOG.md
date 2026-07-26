@@ -4,6 +4,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed — three defects in the PNG input path
+
+Found by independent review of the retrofit diff, verified against source, and
+fixed only after a regression test for each was confirmed to **fail** against
+the pre-fix code.
+
+- **PNG inputs now honour zoom and padding.** The old `png_render_to_pillow`
+  resized straight to the target size, silently discarding both controls, so
+  the same sliders worked for an SVG input and did nothing for a PNG one.
+  Replaced by module-level `render_png_to_pillow`, which mirrors
+  `render_svg_to_pillow`'s geometry exactly.
+- **Opaque PNG export now uses the chosen background colour.** `convert("RGB")`
+  composites onto black; the SVG path only escaped this because the background
+  was already baked in upstream. The PNG path now composites onto `bg_color`.
+- **macOS `.iconset` filenames now match what `iconutil` accepts.** Both
+  writers emitted `icon_<n>x<n>.png` for every configured size, producing
+  invalid members like `icon_64x64.png` and `icon_1024x1024.png` — so the
+  fallback could fail in exactly the case it exists to cover. New
+  `macos_iconset_entries` returns the required base/`@2x` pairs.
+
+### Added — test suite
+
+- 12 tests under `tests/`, run in CI headless via `QT_QPA_PLATFORM=offscreen`.
+- Each of the three bug tests was checked against the old code first: exactly
+  those three failed, the other nine passed. A regression test that passes on
+  broken code proves nothing.
+
 ### Added
 
 - Strict quality gate configuration in `pyproject.toml` covering ruff, mypy,

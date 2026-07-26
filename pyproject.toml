@@ -69,6 +69,14 @@ ignore = [
     "PLR0915",
 ]
 
+"tests/*.py" = [
+    "S101",     # assert is the entire point of pytest
+    "PLC0415",  # local imports keep Qt out of module scope until the app exists
+    "D103",     # test names describe the case; a docstring would restate them
+    "INP001",   # tests/ is intentionally not a package
+    "TC003",    # runtime imports needed by pytest fixtures, not just typing
+]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 

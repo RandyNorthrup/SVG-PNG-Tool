@@ -13,6 +13,7 @@ what was deliberately not enforced, and what remains outstanding.
 | Format | `ruff format --check .` | passing |
 | Types | `mypy svg_converter.py` | 1 known error, see debt |
 | Dead code | `vulture svg_converter.py --min-confidence 60` | passing, 0 findings |
+| Tests | `pytest tests/ -q` | 12 passing |
 | Security | `bandit -c pyproject.toml -r . -ll` | 0 at medium+; 5 low, reviewed |
 | Secrets | `gitleaks detect` | clean over full history |
 | Dependencies | `pip-audit -r requirements.txt` | see CI |
@@ -107,11 +108,11 @@ An independent review (OpenAI Codex, GPT-5.6-sol) of the retrofit diff
 surfaced three genuine defects in the PNG-input export path. All three predate
 this work and were verified against the source before being recorded here.
 
-They are **not fixed** in this retrofit: the stated goal was to add gates
-without changing runtime behaviour, and there is no test suite to catch a
-regression. Fix them after the tests below exist.
+**All three are now fixed** (see CHANGELOG). They were initially deferred for
+lack of a regression net; a test suite was added first, each test was confirmed
+to fail against the old code, and only then were the fixes applied.
 
-**1. PNG inputs silently ignore zoom and padding.**
+**1. PNG inputs silently ignore zoom and padding.** — FIXED
 `png_render_to_pillow` (`svg_converter.py:619`) takes only `path`, `width`,
 `height`. Every caller — `save_custom_png`, `save_windows_ico_png`,
 `save_macos_icns_png`, `save_png_set_png`, `save_wallpapers_png` — accepts
@@ -120,7 +121,7 @@ regression. Fix them after the tests below exist.
 The SVG path honours both via `render_svg_to_pillow`. So the same controls
 work for an SVG input and do nothing for a PNG input, with no warning.
 
-**2. PNG-to-ICO ignores the chosen background colour.**
+**2. PNG-to-ICO ignores the chosen background colour.** — FIXED
 `save_windows_ico_png` (`svg_converter.py:658`) handles `transparent=False`
 with `src.convert("RGB")`. Pillow composites onto black, not onto `bg`.
 
@@ -129,7 +130,7 @@ background in before the conversion. The PNG path has no such step, so the
 user's colour choice is discarded. Correct fix: call
 `pillow_flatten(src, qcolor_to_rgba_tuple(bg))`, matching `save_custom_png`.
 
-**3. macOS iconset filenames do not match what `iconutil` expects.**
+**3. macOS iconset filenames do not match what `iconutil` expects.** — FIXED
 Both `.iconset` writers (`svg_converter.py:276` and `:687`) emit
 `icon_<size>x<size>.png` for every entry of `MAC_ICON_SIZES`
 (`[16, 32, 64, 128, 256, 512, 1024]`).
@@ -152,19 +153,20 @@ code — but it is not free. When a rule is disabled wholesale, the defects it
 would have caught need another way to surface. Here that was an independent
 review.
 
-### No test suite
+### Test coverage
 
-The project has no tests. This is the single largest gap — it blocks the
-complexity refactor above and means no gate verifies that exports actually
-produce correct images.
+12 tests exist (`tests/`), covering the three fixed bugs plus `unique_path`,
+`pillow_flatten`, and ICO export. Each bug test was verified to fail against
+the pre-fix code before the fix landed — a regression test that passes on
+broken code proves nothing.
 
-Suggested first targets: the three bugs above, then `render_svg_to_pillow` (zoom clamping, padding
-arithmetic, transparent vs flattened), `unique_path` (collision handling), and
-`pillow_flatten` (alpha compositing).
+Still uncovered: the wallpaper and PDF export paths, and `on_create`'s profile
+dispatch. Extending coverage there is the prerequisite for the complexity
+refactor above.
 
 ## Not done
 
-- **Tests** — none exist; out of scope for a quality retrofit, flagged above.
+- **Full test coverage** — wallpaper/PDF paths and profile dispatch remain untested.
 - **Sanitizers** — not applicable, no native code.
 - **Bundle/performance gates** — not applicable, desktop application.
 - **Accessibility (Lighthouse)** — not applicable, no web UI.

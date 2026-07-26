@@ -30,7 +30,7 @@ jobs:
       - name: Install tooling
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy vulture "bandit[toml]" pip-audit
+          pip install ruff mypy vulture "bandit[toml]" pip-audit pytest
           # Qt needs its runtime libs present for mypy to resolve PySide6.
           pip install -r requirements.txt
 
@@ -45,6 +45,11 @@ jobs:
         # PySide6's bundled stubs make QWidget resolve to Any, which trips
         # strict mode's subclass check. Tracked in PLAN.md; not a code defect.
         continue-on-error: true
+
+      - name: Tests
+        run: pytest tests/ -q
+        env:
+          QT_QPA_PLATFORM: offscreen
 
       - name: Dead code (vulture)
         run: vulture svg_converter.py --min-confidence 60
