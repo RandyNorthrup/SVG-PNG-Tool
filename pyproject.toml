@@ -1,0 +1,86 @@
+# Tool configuration only — deliberately no [project] or [build-system] table,
+# because this is a single-file application run directly, not an installable
+# package. Adding packaging metadata would change how pip treats the directory.
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+
+ignore = [
+    # ── formatter conflicts (ruff's own recommendation) ──────────────────
+    "COM812",  # trailing comma missing — the formatter owns this
+    "ISC001",  # single-line implicit string concat — same
+
+    # ── mutually exclusive docstring rules; keeping D211 + D212 ──────────
+    "D203",
+    "D213",
+
+    # ── PySide6/Qt idioms. These fire on correct Qt code, not on defects ──
+    # Qt slots receive signal arguments they are not required to use;
+    # renaming them to _ would break readability against the Qt docs.
+    "ARG001",
+    "ARG002",
+    # Qt widget constructors and paint helpers legitimately take many
+    # parameters (size, zoom, padding, transparency, colour, ...). Splitting
+    # them into a config object would obscure the mapping to the Qt API.
+    "PLR0913",  # too many arguments
+    "PLR0917",  # too many positional arguments
+    # Qt's API takes positional booleans throughout (setVisible(True), etc.).
+    # Rewriting call sites to keyword form is not possible for Qt methods.
+    "FBT001",
+    "FBT002",
+    "FBT003",
+
+    # ── application-level, not library ───────────────────────────────────
+    "D100",  # module docstring — single-file app, README covers it
+    "D104",  # package docstring — no packages here
+    "T201",  # print() is legitimate CLI feedback in this tool
+    "EM101",  # exception message as string literal — readable inline here
+    "EM102",  # f-string in exception — same
+    "TRY003",  # long message outside exception class — no custom hierarchy
+]
+
+[tool.ruff.lint.per-file-ignores]
+"svg_converter.py" = [
+    # subprocess use is reviewed and justified — see the S603/S607 note in
+    # PLAN.md. Calls use list form (never shell=True) and invoke a macOS
+    # system binary with paths from QFileDialog.
+    "S603",
+    "S607",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.format]
+docstring-code-format = true
+
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+pretty = true
+
+# PySide6 ships partial stubs; cairosvg and PIL plugins have none. Untyped
+# imports are allowed for these three only — everything else must be typed.
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = ["cairosvg.*", "PySide6.*", "PIL.*"]
+ignore_missing_imports = true
+
+
+[tool.bandit]
+exclude_dirs = [".git", "__pycache__", "build", "dist"]
+# B404/B603/B607 relate to the reviewed `iconutil` subprocess call on macOS.
+# Justification is recorded in PLAN.md rather than suppressed silently.
+skips = []
