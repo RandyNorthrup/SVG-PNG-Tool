@@ -208,7 +208,7 @@ def save_windows_ico(
     zoom: float,
     padding: int,
     bg: QColor,
-):
+) -> None:
     """Single Pillow image saved once with sizes=[...].
     Background is already applied by render step when transparent=False.
     """
@@ -239,7 +239,7 @@ def save_macos_icns(
     zoom: float,
     padding: int,
     bg: QColor,
-):
+) -> None:
     """Save ICNS directly via Pillow from the same base image.
     Fallback to iconutil on macOS ONLY if Pillow save fails.
     """
@@ -301,7 +301,7 @@ def save_png_set(
     padding: int,
     bg: QColor,
     fmt: str = "png",
-):
+) -> None:
     """Generic PNG/JPG/BMP export set (Linux/Android/iOS). Background baked when needed.
     """
     fmt = fmt.lower()
@@ -333,7 +333,7 @@ def save_wallpapers(
     padding: int,
     bg: QColor,
     fmt: str = "png",
-):
+) -> None:
     """Wallpapers in PNG/JPG/BMP.
     """
     fmt = fmt.lower()
@@ -365,7 +365,7 @@ def save_custom(
     zoom: float,
     padding: int,
     bg: QColor,
-):
+) -> None:
     """Custom size export honoring PNG/JPG/PDF/BMP.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -386,7 +386,7 @@ def save_custom(
 
 # ---------- GUI ----------
 class SvgConverterApp(QWidget):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("SVG/PNG Converter & Icon Generator")
         self.setWindowIcon(QIcon.fromTheme("image-x-svg"))
@@ -494,7 +494,7 @@ class SvgConverterApp(QWidget):
         self.on_profile_changed()
 
     # ---- UI Actions ----
-    def on_profile_changed(self):
+    def on_profile_changed(self) -> None:
         """Dynamically set allowed output formats per profile and toggle size editing."""
         profile = self.profileCombo.currentText()
         self.formatCombo.blockSignals(True)
@@ -522,7 +522,7 @@ class SvgConverterApp(QWidget):
         self.formatCombo.blockSignals(False)
         self.update_preview()
 
-    def on_load(self):
+    def on_load(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "Choose Source", "", "SVG or PNG Files (*.svg *.png)"
         )
@@ -532,7 +532,7 @@ class SvgConverterApp(QWidget):
             self.createBtn.setEnabled(True)
             self.update_preview()
 
-    def choose_bg_color(self):
+    def choose_bg_color(self) -> None:
         color = QColorDialog.getColor(self.bgColor, self, "Select Background Color")
         if color.isValid():
             self.bgColor = color
@@ -546,7 +546,7 @@ class SvgConverterApp(QWidget):
         return QFileDialog.getExistingDirectory(self, "Choose output directory") or None
 
     # ---- Preview ----
-    def update_preview(self):
+    def update_preview(self) -> None:
         if not self.svg_path:
             self.previewImage.setText("No source loaded")
             return
@@ -586,7 +586,7 @@ class SvgConverterApp(QWidget):
             self.previewImage.setText(f"Preview error:\n{e}")
 
     # ---- Export ----
-    def on_create(self):
+    def on_create(self) -> None:
         if not self.svg_path:
             QMessageBox.warning(
                 self, "No source", "Please load an SVG or PNG file first."
@@ -609,15 +609,26 @@ class SvgConverterApp(QWidget):
 
         try:
 
-            def png_render_to_pillow(path, width, height, **kwargs):
+            def png_render_to_pillow(
+                path: str, width: int, height: int, **kwargs: object
+            ) -> Image.Image:
                 img = Image.open(path)
                 img = img.convert("RGBA")
                 img = img.resize((width, height), LANCZOS_RESAMPLE)
                 return img
 
             def save_custom_png(
-                src_path, out_dir, name, w, h, fmt, transparent, zoom, padding, bg
-            ):
+                src_path: str,
+                out_dir: Path,
+                name: str,
+                w: int,
+                h: int,
+                fmt: str,
+                transparent: bool,
+                zoom: float,
+                padding: int,
+                bg: QColor,
+            ) -> None:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 img = png_render_to_pillow(src_path, w, h)
                 out = unique_path(out_dir / f"{name}_{w}x{h}.{fmt}")
@@ -630,8 +641,14 @@ class SvgConverterApp(QWidget):
                     img.save(out)
 
             def save_windows_ico_png(
-                src_path, out_dir, sizes, transparent, zoom, padding, bg
-            ):
+                src_path: str,
+                out_dir: Path,
+                sizes: list[int],
+                transparent: bool,
+                zoom: float,
+                padding: int,
+                bg: QColor,
+            ) -> None:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 base = max(sizes)
                 src = png_render_to_pillow(src_path, base, base)
@@ -642,8 +659,14 @@ class SvgConverterApp(QWidget):
                 src.save(ico_path, format="ICO", sizes=[(s, s) for s in sizes])
 
             def save_macos_icns_png(
-                src_path, out_dir, sizes_for_check, transparent, zoom, padding, bg
-            ):
+                src_path: str,
+                out_dir: Path,
+                sizes_for_check: list[int],
+                transparent: bool,
+                zoom: float,
+                padding: int,
+                bg: QColor,
+            ) -> None:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 base = max(sizes_for_check)
                 src = png_render_to_pillow(src_path, base, base)
@@ -679,17 +702,17 @@ class SvgConverterApp(QWidget):
                         raise
 
             def save_png_set_png(
-                src_path,
-                out_dir,
-                label,
-                name,
-                sizes,
-                transparent,
-                zoom,
-                padding,
-                bg,
-                fmt="png",
-            ):
+                src_path: str,
+                out_dir: Path,
+                label: str,
+                name: str,
+                sizes: list[int],
+                transparent: bool,
+                zoom: float,
+                padding: int,
+                bg: QColor,
+                fmt: str = "png",
+            ) -> None:
                 fmt = fmt.lower()
                 base = out_dir / label / name
                 base.mkdir(parents=True, exist_ok=True)
@@ -700,17 +723,17 @@ class SvgConverterApp(QWidget):
                     img.save(base / f"{name}_{s}x{s}.{fmt}")
 
             def save_wallpapers_png(
-                src_path,
-                out_dir,
-                label,
-                name,
-                sizes,
-                transparent,
-                zoom,
-                padding,
-                bg,
-                fmt="png",
-            ):
+                src_path: str,
+                out_dir: Path,
+                label: str,
+                name: str,
+                sizes: list[QSize],
+                transparent: bool,
+                zoom: float,
+                padding: int,
+                bg: QColor,
+                fmt: str = "png",
+            ) -> None:
                 fmt = fmt.lower()
                 base = out_dir / "wallpapers" / label / name
                 base.mkdir(parents=True, exist_ok=True)
