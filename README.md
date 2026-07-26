@@ -96,6 +96,45 @@ macOS users exporting **ICNS** should also have `iconutil` available
 -   **Linux/Android/iOS** → Multiple PNG/JPG/BMP files in platform
     folders.
 
+## Development
+
+Set up an isolated environment:
+
+``` bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python svg_converter.py
+```
+
+### Quality gates
+
+Every command below fails on findings — none are advisory. CI runs the same
+set, so a clean local run means a clean build.
+
+``` bash
+pip install ruff mypy vulture "bandit[toml]" pip-audit
+
+ruff check .                                  # lint
+ruff format --check .                         # formatting
+mypy svg_converter.py                         # types, strict
+vulture svg_converter.py --min-confidence 60  # dead code
+bandit -c pyproject.toml -r . -ll             # security
+pip-audit --requirement requirements.txt      # dependency CVEs
+```
+
+To run them automatically on every commit:
+
+``` bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+Configuration lives in `pyproject.toml`. Rules that are deliberately disabled
+carry an inline comment explaining why. Known limitations and deferred work are
+tracked in [PLAN.md](PLAN.md).
+
 ## License
 
 MIT License -- free to use and modify.

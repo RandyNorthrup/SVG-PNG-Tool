@@ -1,0 +1,63 @@
+# Local quality gate. Install once with:  pre-commit install
+# Run over everything with:               pre-commit run --all-files
+#
+# Mirrors .github/workflows/quality.yml so a green commit means a green CI.
+
+fail_fast: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-toml
+      - id: check-yaml
+      - id: detect-private-key
+
+  # Secrets — scans history, not only the staged diff.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml]
+        additional_dependencies: ['bandit[toml]']
+
+  - repo: local
+    hooks:
+      # mypy runs from the system install so it sees the same PySide6 the
+      # application does. A pre-commit-managed venv would lack the Qt stubs
+      # and report a wall of false import errors.
+      - id: mypy
+        name: mypy (strict)
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [svg_converter.py]
+
+      - id: vulture
+        name: vulture (dead code)
+        entry: vulture
+        language: system
+        types: [python]
+        args: [svg_converter.py, --min-confidence, '60']
+        pass_filenames: false

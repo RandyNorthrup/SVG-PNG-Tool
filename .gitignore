@@ -69,3 +69,7 @@ Image Files/
 *.log
 *.tmp
 *.bak
+
+.venv/
+__pycache__/
+*.pyc
