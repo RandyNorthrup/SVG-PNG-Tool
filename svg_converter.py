@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import io
 import platform
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 from PIL import Image
 from PySide6.QtCore import QSize, Qt
@@ -39,7 +40,8 @@ except OSError as e:
     ]
     if sys_platform == "Darwin":
         msg.append(
-            "macOS: Run 'brew install cairo' in Terminal. If you don't have Homebrew, install it from https://brew.sh first."
+            "macOS: Run 'brew install cairo' in Terminal. "
+            "If you don't have Homebrew, install it from https://brew.sh first."
         )
     elif sys_platform == "Windows":
         msg.append(
@@ -95,6 +97,7 @@ def unique_path(path: Path) -> Path:
 
 
 def qcolor_to_rgba_tuple(c: QColor) -> tuple[int, int, int, int]:
+    """Convert a QColor into the (r, g, b, a) tuple Pillow expects."""
     return (c.red(), c.green(), c.blue(), c.alpha())
 
 
@@ -116,9 +119,7 @@ def pillow_to_qpixmap(img: Image.Image) -> QPixmap:
         img = img.convert("RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    qimg = QImage.fromData(
-        buf.getvalue()
-    )  # Removed format string for Pylance type compatibility
+    qimg = QImage.fromData(buf.getvalue())  # Removed format string for Pylance type compatibility
     return QPixmap.fromImage(qimg)
 
 
@@ -130,7 +131,7 @@ def render_svg_to_pillow(
     zoom: float = 1.0,
     padding: int = 0,
     transparent: bool = True,
-    bg_color: Optional[QColor] = None,
+    bg_color: QColor | None = None,
 ) -> Image.Image:
     """Render SVG -> PNG bytes (CairoSVG), load into Pillow.
 
@@ -159,9 +160,7 @@ def render_svg_to_pillow(
         url=svg_path,
         output_width=render_w,
         output_height=render_h,
-        background_color=None
-        if transparent
-        else f"rgb({bg.red()},{bg.green()},{bg.blue()})",
+        background_color=None if transparent else f"rgb({bg.red()},{bg.green()},{bg.blue()})",
     )
     content = Image.open(io.BytesIO(png_bytes if png_bytes is not None else b""))
     content.load()
@@ -186,9 +185,7 @@ def render_svg_to_pillow(
             canvas.paste(content, (cx, cy))
         return canvas
     # Always flatten onto RGB background, using the background color
-    canvas = Image.new(
-        "RGB", (canvas_w, canvas_h), (bg.red(), bg.green(), bg.blue())
-    )
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (bg.red(), bg.green(), bg.blue()))
     cx = (canvas_w - content.size[0]) // 2
     cy = (canvas_h - content.size[1]) // 2
     # If content has alpha, use it as mask
@@ -209,8 +206,9 @@ def save_windows_ico(
     padding: int,
     bg: QColor,
 ) -> None:
-    """Single Pillow image saved once with sizes=[...].
-    Background is already applied by render step when transparent=False.
+    """Save a multi-resolution Windows .ico from one Pillow image.
+
+    Background is already applied by the render step when transparent=False.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     base = max(sizes)
@@ -223,10 +221,9 @@ def save_windows_ico(
         transparent=transparent,
         bg_color=bg,
     )
-    if not transparent:
-        # Always convert to RGB, dropping any alpha channel
-        if src.mode != "RGB":
-            src = src.convert("RGB")
+    # Always convert to RGB, dropping any alpha channel
+    if not transparent and src.mode != "RGB":
+        src = src.convert("RGB")
     ico_path = unique_path(out_dir / "icon.ico")
     src.save(ico_path, format="ICO", sizes=[(s, s) for s in sizes])
 
@@ -240,7 +237,8 @@ def save_macos_icns(
     padding: int,
     bg: QColor,
 ) -> None:
-    """Save ICNS directly via Pillow from the same base image.
+    """Save a macOS .icns, falling back to iconutil when Pillow cannot.
+
     Fallback to iconutil on macOS ONLY if Pillow save fails.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -306,8 +304,7 @@ def save_png_set(
     bg: QColor,
     fmt: str = "png",
 ) -> None:
-    """Generic PNG/JPG/BMP export set (Linux/Android/iOS). Background baked when needed.
-    """
+    """Export a PNG/JPG/BMP size set, baking the background when needed."""
     fmt = fmt.lower()
     base = out_dir / label / name
     base.mkdir(parents=True, exist_ok=True)
@@ -338,8 +335,7 @@ def save_wallpapers(
     bg: QColor,
     fmt: str = "png",
 ) -> None:
-    """Wallpapers in PNG/JPG/BMP.
-    """
+    """Export wallpaper images in PNG/JPG/BMP at each requested size."""
     fmt = fmt.lower()
     base = out_dir / "wallpapers" / label / name
     base.mkdir(parents=True, exist_ok=True)
@@ -370,8 +366,7 @@ def save_custom(
     padding: int,
     bg: QColor,
 ) -> None:
-    """Custom size export honoring PNG/JPG/PDF/BMP.
-    """
+    """Export a single image at a custom size in PNG/JPG/PDF/BMP."""
     out_dir.mkdir(parents=True, exist_ok=True)
     img = render_svg_to_pillow(
         svg_path, w, h, zoom=zoom, padding=padding, transparent=transparent, bg_color=bg
@@ -390,12 +385,15 @@ def save_custom(
 
 # ---------- GUI ----------
 class SvgConverterApp(QWidget):
+    """Main window: pick an SVG or PNG, choose a profile, export image sets."""
+
     def __init__(self) -> None:
+        """Build the widget tree, wire signals, and apply initial state."""
         super().__init__()
         self.setWindowTitle("SVG/PNG Converter & Icon Generator")
         self.setWindowIcon(QIcon.fromTheme("image-x-svg"))
 
-        self.svg_path: Optional[str] = None
+        self.svg_path: str | None = None
         self.bgColor = QColor("white")
 
         # Left: Preview  # noqa: ERA001  (section header, not commented-out code)
@@ -451,9 +449,7 @@ class SvgConverterApp(QWidget):
         self.zoomSlider.setRange(10, 100)
         self.zoomSlider.setValue(100)
         self.zoomLabel = QLabel("Zoom: 100%")
-        self.zoomSlider.valueChanged.connect(
-            lambda v: self.zoomLabel.setText(f"Zoom: {v}%")
-        )
+        self.zoomSlider.valueChanged.connect(lambda v: self.zoomLabel.setText(f"Zoom: {v}%"))
 
         self.createBtn = QPushButton("Create…")
         self.createBtn.setEnabled(False)
@@ -466,7 +462,8 @@ class SvgConverterApp(QWidget):
 
         size_row = QHBoxLayout()
         size_row.addWidget(self.widthSpin)
-        size_row.addWidget(QLabel("×"))
+        # U+00D7 MULTIPLICATION SIGN is intentional display text here.
+        size_row.addWidget(QLabel("×"))  # noqa: RUF001
         size_row.addWidget(self.heightSpin)
 
         form = QFormLayout()
@@ -527,6 +524,7 @@ class SvgConverterApp(QWidget):
         self.update_preview()
 
     def on_load(self) -> None:
+        """Prompt for a source file and load it into the preview."""
         path, _ = QFileDialog.getOpenFileName(
             self, "Choose Source", "", "SVG or PNG Files (*.svg *.png)"
         )
@@ -537,6 +535,7 @@ class SvgConverterApp(QWidget):
             self.update_preview()
 
     def choose_bg_color(self) -> None:
+        """Open the colour picker and store the chosen background."""
         color = QColorDialog.getColor(self.bgColor, self, "Select Background Color")
         if color.isValid():
             self.bgColor = color
@@ -546,11 +545,13 @@ class SvgConverterApp(QWidget):
                 )
             self.update_preview()
 
-    def ask_output_dir(self) -> Optional[str]:
+    def ask_output_dir(self) -> str | None:
+        """Prompt for an output directory; None if the user cancels."""
         return QFileDialog.getExistingDirectory(self, "Choose output directory") or None
 
     # ---- Preview ----
     def update_preview(self) -> None:
+        """Re-render the preview to match the current settings."""
         if not self.svg_path:
             self.previewImage.setText("No source loaded")
             return
@@ -594,10 +595,9 @@ class SvgConverterApp(QWidget):
 
     # ---- Export ----
     def on_create(self) -> None:
+        """Run the export for the selected profile and settings."""
         if not self.svg_path:
-            QMessageBox.warning(
-                self, "No source", "Please load an SVG or PNG file first."
-            )
+            QMessageBox.warning(self, "No source", "Please load an SVG or PNG file first.")
             return
         out = self.ask_output_dir()
         if not out:
@@ -616,13 +616,10 @@ class SvgConverterApp(QWidget):
 
         try:
 
-            def png_render_to_pillow(
-                path: str, width: int, height: int, **kwargs: object
-            ) -> Image.Image:
+            def png_render_to_pillow(path: str, width: int, height: int) -> Image.Image:
                 img = Image.open(path)
                 img = img.convert("RGBA")
-                img = img.resize((width, height), LANCZOS_RESAMPLE)
-                return img
+                return img.resize((width, height), LANCZOS_RESAMPLE)
 
             def save_custom_png(
                 src_path: str,
@@ -659,9 +656,8 @@ class SvgConverterApp(QWidget):
                 out_dir.mkdir(parents=True, exist_ok=True)
                 base = max(sizes)
                 src = png_render_to_pillow(src_path, base, base)
-                if not transparent:
-                    if src.mode != "RGB":
-                        src = src.convert("RGB")
+                if not transparent and src.mode != "RGB":
+                    src = src.convert("RGB")
                 ico_path = unique_path(out_dir / "icon.ico")
                 src.save(ico_path, format="ICO", sizes=[(s, s) for s in sizes])
 

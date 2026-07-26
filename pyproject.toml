@@ -41,6 +41,10 @@ ignore = [
     "EM101",  # exception message as string literal — readable inline here
     "EM102",  # f-string in exception — same
     "TRY003",  # long message outside exception class — no custom hierarchy
+
+    # Copyright is asserted once in LICENSE. A per-file header adds no legal
+    # weight to a single-file application and would need updating every year.
+    "CPY001",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -50,6 +54,19 @@ ignore = [
     # system binary with paths from QFileDialog.
     "S603",
     "S607",
+
+    # DEFERRED, NOT ACCEPTED. `__init__` (69 statements) and `on_create`
+    # (119 statements, complexity 43) exceed the thresholds. Both are long
+    # for the same structural reason: __init__ builds the whole Qt widget
+    # tree inline, and on_create dispatches across every export profile with
+    # a nested helper per profile.
+    #
+    # Splitting them is a real refactor with real regression risk in code
+    # that has no test suite, so it is tracked in PLAN.md rather than done
+    # blind. Remove these three ignores once the extraction lands.
+    "C901",
+    "PLR0912",
+    "PLR0915",
 ]
 
 [tool.ruff.lint.pydocstyle]
