@@ -63,7 +63,9 @@ docstring-code-format = true
 
 
 [tool.mypy]
-python_version = "3.9"
+# 3.10 is the floor mypy still supports; the code itself targets 3.9+ and
+# ruff enforces that separately via target-version.
+python_version = "3.10"
 strict = true
 warn_unreachable = true
 strict_equality = true

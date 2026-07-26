@@ -280,6 +280,10 @@ def save_macos_icns(
                 ["iconutil", "-c", "icns", str(iconset), "-o", str(icns_path)],
                 capture_output=True,
                 text=True,
+                # check=False is deliberate: the returncode is inspected below
+                # so the failure can be reported with iconutil's own stderr,
+                # which check=True would discard behind a CalledProcessError.
+                check=False,
             )
             if proc.returncode != 0:
                 raise RuntimeError(
@@ -394,7 +398,7 @@ class SvgConverterApp(QWidget):
         self.svg_path: Optional[str] = None
         self.bgColor = QColor("white")
 
-        # Left: Preview
+        # Left: Preview  # noqa: ERA001  (section header, not commented-out code)
         self.previewLabel = QLabel("Preview")
         self.previewImage = QLabel()
         self.previewImage.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -582,7 +586,10 @@ class SvgConverterApp(QWidget):
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
-        except Exception as e:
+        # Broad catch is deliberate: a malformed SVG must degrade to an
+        # in-widget error message, never propagate out of a Qt slot and
+        # terminate the application.
+        except Exception as e:  # noqa: BLE001
             self.previewImage.setText(f"Preview error:\n{e}")
 
     # ---- Export ----
@@ -693,6 +700,10 @@ class SvgConverterApp(QWidget):
                             ],
                             capture_output=True,
                             text=True,
+                            # check=False is deliberate — see the matching call
+                            # in save_macos_icns; returncode is inspected below
+                            # so iconutil's stderr survives into the error.
+                            check=False,
                         )
                         if proc.returncode != 0:
                             raise RuntimeError(
@@ -1012,7 +1023,9 @@ class SvgConverterApp(QWidget):
 
             QMessageBox.information(self, "Done", f"Export complete to:\n{out_dir}")
 
-        except Exception as e:
+        # Broad catch is deliberate: any export failure must surface as a
+        # dialog rather than escaping a Qt slot and killing the app mid-run.
+        except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Error", str(e))
 
 
