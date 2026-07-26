@@ -101,13 +101,64 @@ rather than free-text user input. `B603`/`B607` are suppressed in
 Residual risk: `iconutil` is invoked by name, so a hostile entry earlier in
 `PATH` could shadow it. This requires an already-compromised machine.
 
+### Pre-existing bugs found during review (not introduced by the retrofit)
+
+An independent review (OpenAI Codex, GPT-5.6-sol) of the retrofit diff
+surfaced three genuine defects in the PNG-input export path. All three predate
+this work and were verified against the source before being recorded here.
+
+They are **not fixed** in this retrofit: the stated goal was to add gates
+without changing runtime behaviour, and there is no test suite to catch a
+regression. Fix them after the tests below exist.
+
+**1. PNG inputs silently ignore zoom and padding.**
+`png_render_to_pillow` (`svg_converter.py:619`) takes only `path`, `width`,
+`height`. Every caller — `save_custom_png`, `save_windows_ico_png`,
+`save_macos_icns_png`, `save_png_set_png`, `save_wallpapers_png` — accepts
+`zoom` and `padding` parameters and then drops them.
+
+The SVG path honours both via `render_svg_to_pillow`. So the same controls
+work for an SVG input and do nothing for a PNG input, with no warning.
+
+**2. PNG-to-ICO ignores the chosen background colour.**
+`save_windows_ico_png` (`svg_converter.py:658`) handles `transparent=False`
+with `src.convert("RGB")`. Pillow composites onto black, not onto `bg`.
+
+The SVG path avoids this because `render_svg_to_pillow` already baked the
+background in before the conversion. The PNG path has no such step, so the
+user's colour choice is discarded. Correct fix: call
+`pillow_flatten(src, qcolor_to_rgba_tuple(bg))`, matching `save_custom_png`.
+
+**3. macOS iconset filenames do not match what `iconutil` expects.**
+Both `.iconset` writers (`svg_converter.py:276` and `:687`) emit
+`icon_<size>x<size>.png` for every entry of `MAC_ICON_SIZES`
+(`[16, 32, 64, 128, 256, 512, 1024]`).
+
+`iconutil` requires a fixed set of base and `@2x` pairs — `icon_16x16.png`,
+`icon_16x16@2x.png`, `icon_32x32.png`, `icon_32x32@2x.png`, and so on up to
+`icon_512x512@2x.png`. `icon_64x64.png` and `icon_1024x1024.png` are not
+valid iconset members. The fallback can therefore fail in exactly the
+situation it exists to handle — when Pillow's own ICNS writer has already
+failed.
+
+### Lint waivers can conceal defects
+
+Bug 1 above is a concrete example worth remembering: suppressing `ARG001`
+(unused argument) to quiet Qt-slot noise also silenced the warning that
+`zoom` and `padding` were accepted and never used.
+
+The suppression is still correct — `ARG001` fires constantly on legitimate Qt
+code — but it is not free. When a rule is disabled wholesale, the defects it
+would have caught need another way to surface. Here that was an independent
+review.
+
 ### No test suite
 
 The project has no tests. This is the single largest gap — it blocks the
 complexity refactor above and means no gate verifies that exports actually
 produce correct images.
 
-Suggested first targets: `render_svg_to_pillow` (zoom clamping, padding
+Suggested first targets: the three bugs above, then `render_svg_to_pillow` (zoom clamping, padding
 arithmetic, transparent vs flattened), `unique_path` (collision handling), and
 `pillow_flatten` (alpha compositing).
 
